@@ -371,7 +371,7 @@ relocate_original_headers(uint8_t *buffer, struct target_info *info, uint8_t met
         else if (method == NEW_SECTION)
         {
             /* offset is relative to start of file so we need to add it to compute the size */
-            uint32_t old_cmds_size = tmp->free_offset - tmp->data_offset + tmp->header_size;
+            uint32_t old_cmds_size = tmp->free_offset - tmp->data_offset;
             uint8_t *src = start + tmp->data_offset;
             uint8_t *dst = src + tmp->new_cmds_size;
             memmove(dst, src, old_cmds_size);
