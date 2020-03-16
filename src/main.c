@@ -50,6 +50,8 @@
 /* add a new section to current __TEXT segment or add a whole new segment/section */
 #define NEW_SECTION 0
 #define NEW_SEGMENT 1
+// Print hex value
+#define PH(name, v) printf("[Macbit]%s 0x%x\n", name, v)
 
 #if DEBUG
 #define LOG_DEBUG(...) fprintf(stderr, __VA_ARGS__)
@@ -100,6 +102,8 @@ static int calc_header_space_aux(uint8_t *buffer, uint32_t plist_size, struct ta
 static int relocate_original_headers(uint8_t *buffer, struct target_info *info, uint8_t method);
 static int inject_plist_segment(char* sectname, uint8_t *buffer, uint8_t *plist_buffer, uint32_t plist_size, struct target_info *info);
 static int inject_plist_section(char* sectname, uint8_t *buffer, uint8_t *plist_buffer, uint32_t plist_size, struct target_info *info);
+
+static int base_addr = 0x4000000;
 
 void
 header(void)
@@ -324,9 +328,9 @@ calc_header_space_aux(uint8_t *buffer, uint32_t plist_size, struct target_info *
     }
     else
     {
-        info->free_space  = lowest_offset - (header_size + mh->sizeofcmds);
-        /* the free space offset is right after the last current command */
         info->free_offset = header_size + mh->sizeofcmds;
+        /* the free space offset is right after the last current command */
+        info->free_space  = lowest_offset - info->free_offset;
         info->new_cmds_size = new_cmds_size;
         info->header_size = header_size;
     }
@@ -340,6 +344,17 @@ align_plist_offset(uint32_t offset)
     uint32_t remainder = offset % sizeof(uint32_t);
     if (remainder != 0)
         return (offset + sizeof(uint32_t) - remainder);
+    else
+        return offset;
+}
+
+/* alignment to 32 bits */
+uint32_t
+align_plist_offset_l(uint32_t offset)
+{
+    uint32_t remainder = offset % sizeof(uint32_t);
+    if (remainder != 0)
+        return (offset - remainder);
     else
         return offset;
 }
@@ -422,7 +437,6 @@ inject_plist_segment(char* sectname, uint8_t *buffer, uint8_t *plist_buffer, uin
             /* and finally fix the mach-o header to include the new segment */
             mh->ncmds += 1;
             mh->sizeofcmds += tmp->new_cmds_size;
-            tmp->free_offset = align_plist_offset(new_free_offset + plist_size);
         }
         else if (mh->magic == MH_MAGIC_64)
         {
@@ -446,7 +460,6 @@ inject_plist_segment(char* sectname, uint8_t *buffer, uint8_t *plist_buffer, uin
             memcpy(start, plist_buffer, plist_size);
             mh->ncmds += 1;
             mh->sizeofcmds += tmp->new_cmds_size;
-            tmp->free_offset = align_plist_offset(new_free_offset + plist_size);
         }
     }
     return 0;
@@ -483,30 +496,27 @@ inject_plist_section(char* sectname, uint8_t *buffer, uint8_t *plist_buffer, uin
             seg_cmd->cmdsize += tmp->new_cmds_size;
             seg_cmd->nsects += 1;
             mh->sizeofcmds += tmp->new_cmds_size;
-            tmp->free_offset = align_plist_offset(new_free_offset + plist_size);
         }
         else if (mh->magic == MH_MAGIC_64)
         {
             /* location of __TEXT segment command - we need to fix its size */
+            PH("tmp->text_offset", tmp->text_offset);
             struct segment_command_64 *seg_cmd64 = (struct segment_command_64*)(buffer + tmp->start_offset + tmp->text_offset);
-            struct section_64 *newsect = (struct section_64*)((char*)seg_cmd64 + seg_cmd64->cmdsize);
+            struct section_64 *plist_sect = (struct section_64*)((char*)seg_cmd64 + seg_cmd64->cmdsize);
             /* and add the new section */
-            strcpy(newsect->sectname, sectname);
-            strcpy(newsect->segname, "__TEXT");
-            newsect->addr = 0x100000000;
-            newsect->size = plist_size;
-            /* calculate the offset for the plist */
-            uint32_t new_free_offset = align_plist_offset(tmp->free_offset + tmp->new_cmds_size);
-            /* set the plist offset and copy it */
-            newsect->offset = new_free_offset;
-            LOG_DEBUG("[DEBUG] plist offset %x align %x\n", newsect->offset, newsect->align);
-            uint8_t *start = buffer + tmp->start_offset + new_free_offset;
-            memcpy(start, plist_buffer, plist_size);
-            /* and finally fix all the sizes and number of commands/sections */
+            strcpy(plist_sect->sectname, sectname);
+            strcpy(plist_sect->segname, "__TEXT");
+            plist_sect->size = plist_size;
+            /* Paste plist at the end of fee_space, calculate the offset for the plist */
+            uint32_t plist_sect_offset = align_plist_offset_l(tmp->start_offset + info->free_offset + info->free_space - plist_size);
+            plist_sect->offset = plist_sect_offset;
+            LOG_DEBUG("[DEBUG] plist offset %x align %x\n", plist_sect->offset, plist_sect->align);
+
+            plist_sect->addr =  base_addr + plist_sect->offset;
+            memcpy(buffer + plist_sect->offset, plist_buffer, plist_size);
             seg_cmd64->cmdsize += tmp->new_cmds_size;
             seg_cmd64->nsects += 1;
             mh->sizeofcmds += tmp->new_cmds_size;
-            tmp->free_offset = align_plist_offset(new_free_offset + plist_size);
         }
     }
     return 0;
@@ -599,12 +609,14 @@ int main(int argc, const char * argv[])
         exit(1);
     }
 
+    PH("free_offset before", info->free_offset);
     /* we have free space so we can do our job! */
     relocate_original_headers(target_buf, info, method);
     if (method == NEW_SECTION)
         inject_plist_section(sectname, target_buf, plist_buf, plist_size, info);
     else
         inject_plist_segment(sectname, target_buf, plist_buf, plist_size, info);
+    PH("free_offset after", info->free_offset);
 
     /* build output filename */
     size_t output_size = strlen(target_path) + strlen(EXTENSION) + 1;
