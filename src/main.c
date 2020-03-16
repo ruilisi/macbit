@@ -141,21 +141,21 @@ read_file(uint8_t **buffer, FILE *file)
     }
     /* XXX: truncate to 32 bits, maybe add some check if file > uint32_t ? */
     uint32_t size = (uint32_t)ftell(file);
-    
+
     if (fseek(file, 0, SEEK_SET))
     {
 		printf("[ERROR] fseek failed!\n");
         perror(NULL);
         exit(1);
     }
-    
+
     *buffer = malloc(size);
     if (*buffer == NULL)
     {
         fprintf(stderr, "[ERROR] malloc failed!\n");
         exit(1);
     }
-    
+
     fread(*buffer, size, 1, file);
 	if (ferror(file))
 	{
@@ -193,7 +193,7 @@ calc_header_space(uint8_t *buffer, uint32_t plist_size, struct target_info **inf
         LL_PREPEND(*info, new);
         calc_header_space_aux(buffer, plist_size, new, method);
     }
-    
+
     /* verify if it will be possible to inject */
     struct target_info *tmp = NULL;
     LL_FOREACH(*info, tmp)
@@ -226,10 +226,10 @@ calc_header_space_aux(uint8_t *buffer, uint32_t plist_size, struct target_info *
     {
         return -1;
     }
-    
+
     struct load_command *load_cmd = (struct load_command*)((char*)buffer + header_size);
     uint32_t lowest_offset = UINT_MAX;
-    
+
     for (uint32_t i = 0; i < mh->ncmds; i++)
     {
         if (load_cmd->cmd == LC_SEGMENT)
@@ -247,7 +247,7 @@ calc_header_space_aux(uint8_t *buffer, uint32_t plist_size, struct target_info *
                 info->text_offset = (uint32_t)load_cmd - (uint32_t)buffer;
                 LOG_DEBUG("[DEBUG] text offset is %x\n", info->text_offset);
             }
-            
+
             if (seg_cmd->nsects > 0)
             {
                 for (uint32_t x = 0; x < seg_cmd->nsects; x++)
@@ -312,7 +312,7 @@ calc_header_space_aux(uint8_t *buffer, uint32_t plist_size, struct target_info *
         }
         load_cmd = (struct load_command*)((char*)load_cmd + load_cmd->cmdsize);
     }
-    
+
     /* now we can verify if there's enough space */
     uint32_t new_header_size = header_size + mh->sizeofcmds + new_cmds_size + plist_size;
     LOG_DEBUG("[DEBUG] free offset: %x new offset: %x lowest offset: %x\n", header_size + mh->sizeofcmds, new_header_size, lowest_offset);
@@ -418,7 +418,7 @@ inject_plist_segment(char* sectname, uint8_t *buffer, uint8_t *plist_buffer, uin
             /* set the plist offset and copy it */
             newsect->offset = new_free_offset;
             uint8_t *start = buffer + tmp->start_offset + new_free_offset;
-            memcpy(start, plist_buffer, plist_size);            
+            memcpy(start, plist_buffer, plist_size);
             /* and finally fix the mach-o header to include the new segment */
             mh->ncmds += 1;
             mh->sizeofcmds += tmp->new_cmds_size;
@@ -437,7 +437,7 @@ inject_plist_segment(char* sectname, uint8_t *buffer, uint8_t *plist_buffer, uin
             newseg64->nsects = 1;
             struct section_64 *newsect64 = (struct section_64*)((char*)newseg64 + sizeof(struct segment_command_64));
             strcpy(newsect64->sectname, sectname);
-            strcpy(newsect64->segname, "__TEXT");            
+            strcpy(newsect64->segname, "__TEXT");
             newsect64->addr = 0x100000000;
             newsect64->size = plist_size;
             uint32_t new_free_offset = align_plist_offset(tmp->free_offset + tmp->new_cmds_size);
@@ -490,7 +490,7 @@ inject_plist_section(char* sectname, uint8_t *buffer, uint8_t *plist_buffer, uin
             /* location of __TEXT segment command - we need to fix its size */
             struct segment_command_64 *seg_cmd64 = (struct segment_command_64*)(buffer + tmp->start_offset + tmp->text_offset);
             struct section_64 *newsect = (struct section_64*)((char*)seg_cmd64 + seg_cmd64->cmdsize);
-            /* and add the new section */            
+            /* and add the new section */
             strcpy(newsect->sectname, sectname);
             strcpy(newsect->segname, "__TEXT");
             newsect->addr = 0x100000000;
@@ -520,7 +520,7 @@ int main(int argc, const char * argv[])
     const char *target_path = NULL;
     const char *plist_path = NULL;
     char *sectname = "__info_plist";
-    
+
     opterr = 0;
     while ((c = getopt(argc, (char * const*)argv, "s:p:m")) != -1)
     {
@@ -553,15 +553,15 @@ int main(int argc, const char * argv[])
         usage();
         exit(1);
     }
-    
+
     FILE *target_file = fopen(target_path, "r");
     if (!target_file)
     {
         fprintf(stderr, "[ERROR] Can't open %s.\n", target_path);
         perror(NULL);
-        exit(1);        
+        exit(1);
     }
-    
+
     uint8_t *target_buf = NULL;
     uint32_t target_size = read_file(&target_buf, target_file);
     fclose(target_file);
@@ -571,7 +571,7 @@ int main(int argc, const char * argv[])
         fprintf(stderr, "[ERROR] Target is not a valid Mach-O file!\n");
         exit(1);
     }
-    
+
     uint8_t *plist_buf = NULL;
     uint32_t plist_size = 0;
     if (plist_path == NULL)
@@ -605,7 +605,7 @@ int main(int argc, const char * argv[])
         inject_plist_section(sectname, target_buf, plist_buf, plist_size, info);
     else
         inject_plist_segment(sectname, target_buf, plist_buf, plist_size, info);
-    
+
     /* build output filename */
     size_t output_size = strlen(target_path) + strlen(EXTENSION) + 1;
     char *output_path = malloc(output_size);
