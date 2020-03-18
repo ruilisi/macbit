@@ -5,10 +5,53 @@ Macbit aims to solve mac development issues in a bit level.
 ## Usage
 ```
 make all
-./macbit
+./macbit -s __launchd_plist -p helper-Launchd.plist com.example.mac.helper
+./macbit -p helper-Info.plist com.example.mac.helper
+codesign ...
 ```
+## Options
+* `-p PLIST_FILE_PATH`
+* `-s SECTNAME`: Specify sectname of the new `__TEXT` segment which will be injected, by default, `__info_plist`
+* `-m`: Add a new segment/section instead of just a section
 
-## Macbit starts from [GimmeDebugah](https://github.com/gdbinit/gimmedebugah)
+## Why `macbit`
+A plist file acts as the declaration of identification, permission, and many other things in modern macos security system.
+
+In order to install a privileged helper for a Mac application (https://developer.apple.com/library/archive/documentation/Security/Conceptual/SecureCodingGuide/Articles/AccessControl.html), the priviledged helper has to include two plist files and be codesigned.
+
+This is OK when you write the privileged helper with swift or have a way to import helper project into XCode and let XCode to do the whole compliation.
+
+However, in many cases, the helper has to be kept standalone, staying away from XCode system for many reaons:
+* This project can't be compiled by XCode.
+* XCode is slow, keeping the development of the helper standalone largely improves development efficiency.
+
+All of these reasons pushed me to discover a solution to do the work just as XCode and keep the development away from XCode.
+
+It took a long time for my research in the web, but I finally discovered a repo named [GimmeDebugah](https://github.com/gdbinit/gimmedebugah) which hasn't been updated for the past 7 years, but very close to the solution.
+
+After played a while of `GimmeDebugah`, it seems to solve the issue in a basic level but cant' make forward if the program is not reshaped.
+
+This is what `GimmeDebugah` does:
+* Find the address right after `__TEXT` and `__DATA`, which is the free space to add sections and data, let's name it `ADDR_B`.
+* Find the lowest boundary of the free space (`ADDR_E`).
+* Calculate the size of the section and data (equals to the size of section determined by OS platform plus the size of plist) to be added, and compare it with the size of free space (`ADDR_E - ADDR_B`)
+* If size is larger than the size of free space, then program terminates, otherwise, it will do injection.
+
+The downside of `GimmeDebugah` is that when you want to inject another plist file again, the lowest bondary become the end address of the last injected data. Thus, the free space size become `0` and the program terminates.
+
+However, what I have encountered is to inject both `info.plist` and `launchd.plist` into a standalone program which will then be codesigned and act as a launch daemon in the privileged tool folder (`/Library/PrivilegedHelperTools`).
+
+The core trick to do muliple injections is to put the injected data at the end of the free space.
+
+Besides that, other fixes has to be made in order to make the injection work perfectly, for example:
+* Calculate the exact address of data and put it into the new section.
+* Provide more command options.
+
+So I hacked `GimmeDebugah` and made this project named `macbit`, which be actively maintained and will hopefully help developers solve their modern mac development issues.
+
+At the end, great thanks to `GimmeDebugah`, there is no `macbit` without your work done seven years ago.
+
+## Original REAMDE of [GimmeDebugah](https://github.com/gdbinit/gimmedebugah)
 
 This is a small utility to inject a Info.plist into binaries with enough free
  space at the Mach-O header.
